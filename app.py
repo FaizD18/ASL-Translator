@@ -157,66 +157,99 @@ def text_to_signs(text: str) -> str:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-THEME = gr.themes.Soft(
-    primary_hue="indigo",
-    secondary_hue="violet",
-    neutral_hue="slate",
+THEME = gr.themes.Base(
+    primary_hue="red",
+    secondary_hue="rose",
+    neutral_hue="neutral",
     font=[gr.themes.GoogleFont("Poppins"), "ui-sans-serif", "system-ui", "sans-serif"],
 ).set(
-    body_background_fill="*neutral_50",
-    block_radius="16px",
+    body_background_fill="#0a0404",
+    body_text_color="#f3e9e9",
+    body_text_color_subdued="#c9a9a9",
+    background_fill_primary="rgba(28,10,10,0.55)",
+    background_fill_secondary="rgba(20,7,7,0.45)",
+    block_background_fill="rgba(28,10,10,0.55)",
+    block_border_color="rgba(200,60,60,0.28)",
+    block_label_text_color="#ff8a8a",
+    block_label_background_fill="rgba(60,16,16,0.6)",
+    block_title_text_color="#f3e9e9",
+    block_radius="18px",
+    border_color_primary="rgba(200,60,60,0.28)",
+    input_background_fill="rgba(0,0,0,0.40)",
+    input_border_color="rgba(200,60,60,0.30)",
     button_large_radius="12px",
+    button_primary_background_fill="linear-gradient(135deg,#c01f1f,#7d0f0f)",
+    button_primary_background_fill_hover="linear-gradient(135deg,#d62828,#8f1212)",
+    button_primary_text_color="#ffffff",
+    button_secondary_background_fill="rgba(45,16,16,0.7)",
+    button_secondary_text_color="#f3e9e9",
+    button_secondary_border_color="rgba(200,60,60,0.30)",
 )
 
+
+def _data_uri(path: Path) -> str:
+    return f"data:image/png;base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+
+
+WAVE_URI = _data_uri(ROOT / "assets" / "wave.png")
+
 CSS = """
-.gradio-container { max-width: 1080px !important; margin: 0 auto !important; }
+gradio-app {
+    background: radial-gradient(125% 125% at 0% 100%,
+        #5a0c0c 0%, #2a0808 38%, #0a0404 72%, #050202 100%) fixed !important;
+}
+.gradio-container { max-width: 1060px !important; margin: 0 auto !important; background: transparent !important; position: relative; }
+
+/* Flowing wave line-art (bottom-left), screen-blended so only the bright lines show */
+.gradio-container::before {
+    content: ""; position: fixed; left: 0; bottom: 0; width: 70vw; height: 46vh;
+    background: url('__WAVE__') no-repeat left bottom; background-size: contain;
+    mix-blend-mode: screen; opacity: 0.55; pointer-events: none; z-index: 0;
+}
+.gradio-container > * { position: relative; z-index: 1; }
 
 /* Header banner */
 #hero {
-    background: linear-gradient(120deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%);
-    color: #fff; border-radius: 20px; padding: 30px 34px; margin-bottom: 18px;
-    box-shadow: 0 12px 30px rgba(99,102,241,.28);
+    background: linear-gradient(120deg, #8a1414 0%, #3a0c0c 55%, #140707 100%);
+    border: 1px solid rgba(220,90,90,.25);
+    color: #fff; border-radius: 22px; padding: 30px 34px; margin-bottom: 18px;
+    box-shadow: 0 16px 40px rgba(120,12,12,.4);
 }
-#hero h1 { font-size: 2.1rem; font-weight: 700; margin: 0; line-height: 1.1; }
-#hero p  { margin: 8px 0 0; opacity: .92; font-size: 1.02rem; }
+#hero h1 { font-size: 2.2rem; font-weight: 700; margin: 0; line-height: 1.1; }
+#hero p  { margin: 8px 0 0; opacity: .9; font-size: 1.02rem; }
 
-/* Detected-letter chip */
+/* Detected-letter + sentence */
 #detected-letter textarea {
     font-size: 3rem !important; font-weight: 700; text-align: center;
-    letter-spacing: 2px; color: #4f46e5;
+    letter-spacing: 2px; color: #ff7b7b; background: transparent;
 }
-#sentence-box textarea {
-    font-size: 1.5rem !important; line-height: 1.5; letter-spacing: 1px;
-}
+#sentence-box textarea { font-size: 1.5rem !important; line-height: 1.5; letter-spacing: 1px; color: #fff; }
 
 /* Text → Sign strip */
-.tts-strip {
-    display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 2px;
-    align-items: flex-end;
-}
+.tts-strip { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 2px; align-items: flex-end; }
 .tts-card {
     margin: 0; display: flex; flex-direction: column; align-items: center;
-    background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
-    padding: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.05);
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(220,90,90,.28);
+    border-radius: 12px; padding: 8px;
 }
-.tts-card img { width: 76px; height: 76px; object-fit: contain; }
-.tts-card figcaption { margin-top: 4px; font-weight: 600; color: #4f46e5; }
+.tts-card img { width: 76px; height: 76px; object-fit: contain; background: #fff; border-radius: 8px; }
+.tts-card figcaption { margin-top: 4px; font-weight: 600; color: #ff9a9a; }
 .tts-card--text { justify-content: center; }
 .tts-glyph {
     width: 76px; height: 76px; display: flex; align-items: center;
-    justify-content: center; font-size: 2.2rem; font-weight: 700; color: #64748b;
+    justify-content: center; font-size: 2.2rem; font-weight: 700; color: #c9a9a9;
 }
 .tts-space { width: 28px; }
-.tts-empty { color: #64748b; padding: 24px 8px; font-size: 1.05rem; }
+.tts-empty { color: #c9a9a9; padding: 24px 8px; font-size: 1.05rem; }
 
 /* Candidate-guess chips */
 #candidates { gap: 8px; }
 #candidates button {
-    font-weight: 700; color: #4f46e5; background: #eef2ff;
-    border: 1px solid #c7d2fe; border-radius: 10px; min-width: 0;
+    font-weight: 700; color: #fff; background: rgba(150,30,30,.5);
+    border: 1px solid rgba(220,90,90,.45); border-radius: 10px; min-width: 0;
 }
-#candidates button:hover { background: #e0e7ff; }
-"""
+#candidates button:hover { background: rgba(185,40,40,.7); }
+""".replace("__WAVE__", WAVE_URI)
 
 with gr.Blocks(title="ASL Translator") as demo:
     gr.HTML(
