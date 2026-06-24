@@ -1,0 +1,16 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Node (legacy)
+node_modules/
+
+# OS / editor
+.DS_Store
+
+# Training artifacts
+runs/
+data.merged.yaml
+my-data/
