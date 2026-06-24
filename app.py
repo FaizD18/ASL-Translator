@@ -1,9 +1,9 @@
 """
 ASL Translator — a Gradio app that translates between American Sign Language
-hand signs and text.
+hand signs and text. This is the UI layer; all model logic lives in inference.py.
 
-  • Sign → Text : show a hand sign to your webcam (or upload a photo); a YOLOv8
-                  model detects the letter, which you can build into a sentence.
+  • Live Camera : continuous webcam streaming with the predicted letter live.
+  • Sign → Text : capture a frame (or upload a photo) and build a sentence.
   • Text → Sign : type a word or sentence and see the ASL fingerspelling for it.
 
 Designed to run locally (`python app.py`) and to deploy as-is to a
@@ -12,33 +12,22 @@ Hugging Face Space (SDK: gradio, app_file: app.py).
 
 import base64
 import html
-import os
-from functools import lru_cache, partial
+from functools import partial
 from pathlib import Path
 
 import gradio as gr
 import numpy as np
 
+from inference import CLASS_NAMES, SignDetector
+
 # --------------------------------------------------------------------------- #
-# Paths & assets
+# Paths & model
 # --------------------------------------------------------------------------- #
 ROOT = Path(__file__).resolve().parent
-MODEL_PATH = os.environ.get("MODEL_PATH", str(ROOT / "model.pt"))
 LETTERS_DIR = ROOT / "assets" / "letters"
 
-CLASS_NAMES = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-# The model was trained at 416px; running inference at this same size is far more
-# accurate than Ultralytics' default of 640 (87% vs 68% top-1 on the test set).
-IMG_SIZE = 416
-
-
-@lru_cache(maxsize=1)
-def get_model():
-    """Load the YOLOv8 model once, lazily (keeps startup/import fast)."""
-    from ultralytics import YOLO
-
-    return YOLO(MODEL_PATH)
+N_CANDIDATES = 3  # alternative letters to surface in the UI
+detector = SignDetector(n_candidates=N_CANDIDATES)
 
 
 def _letter_data_uri(letter: str) -> str | None:
@@ -55,27 +44,21 @@ LETTER_URIS = {c.lower(): _letter_data_uri(c) for c in CLASS_NAMES}
 
 
 # --------------------------------------------------------------------------- #
-# Sign → Text  (snapshot detection)
+# Live camera (continuous streaming)
 # --------------------------------------------------------------------------- #
-N_CANDIDATES = 3       # how many alternative letters to surface
-CAND_CONF = 0.02       # low threshold so near-miss classes (I/M/N) still appear
+def stream_predict(frame: np.ndarray | None):
+    """Per-frame webcam handler: annotated frame + a confidence label dict."""
+    pred = detector.predict(frame)
+    if not pred.letter:
+        return pred.annotated, {}
+    return pred.annotated, dict(pred.candidates)
 
 
-def _draw_best_box(image: np.ndarray, box, label: str) -> np.ndarray:
-    """Draw a single clean detection box + label on a copy of the frame."""
-    from PIL import Image, ImageDraw
-
-    img = Image.fromarray(image).convert("RGB")
-    draw = ImageDraw.Draw(img)
-    x1, y1, x2, y2 = (int(v) for v in box)
-    draw.rectangle([x1, y1, x2, y2], outline=(217, 70, 239), width=4)
-    draw.rectangle([x1, max(0, y1 - 20), x1 + 9 * len(label) + 8, y1], fill=(217, 70, 239))
-    draw.text((x1 + 4, max(0, y1 - 18)), label, fill=(255, 255, 255))
-    return np.asarray(img)
-
-
+# --------------------------------------------------------------------------- #
+# Sign → Text  (snapshot detection + sentence builder)
+# --------------------------------------------------------------------------- #
 def detect_sign(image: np.ndarray | None):
-    """Run detection on a single frame.
+    """Run detection on a single captured frame.
 
     Returns (annotated_image, best_letter, status_markdown, candidates_state,
     and one button update per candidate slot).
@@ -85,29 +68,13 @@ def detect_sign(image: np.ndarray | None):
         return (None, "", "📸 Capture a webcam photo or upload an image, then press **Detect**.",
                 [], *blank)
 
-    model = get_model()
-    names = getattr(model, "names", None) or {i: n for i, n in enumerate(CLASS_NAMES)}
-    result = model(image, imgsz=IMG_SIZE, conf=CAND_CONF, verbose=False)[0]
-    boxes = result.boxes
-
-    if boxes is None or len(boxes) == 0:
-        return (image, "", "🤔 No hand sign detected. Try centering your hand and improving the lighting.",
+    pred = detector.predict(image)
+    if not pred.letter:
+        return (pred.annotated, "",
+                "🤔 No hand sign detected. Try centering your hand and improving the lighting.",
                 [], *blank)
 
-    confs = boxes.conf.tolist()
-    classes = [int(c) for c in boxes.cls.tolist()]
-
-    # Best confidence per letter, ranked — these are the candidate guesses.
-    best_per_letter: dict[str, float] = {}
-    for cls, conf in zip(classes, confs):
-        letter = str(names[cls]).upper()
-        best_per_letter[letter] = max(best_per_letter.get(letter, 0.0), conf)
-    candidates = sorted(best_per_letter.items(), key=lambda kv: -kv[1])[:N_CANDIDATES]
-
-    top_idx = int(np.argmax(confs))
-    primary, primary_conf = candidates[0]
-    annotated = _draw_best_box(image, boxes.xyxy[top_idx].tolist(), f"{primary} {primary_conf:.0%}")
-
+    candidates = pred.candidates
     btn_updates = []
     for i in range(N_CANDIDATES):
         if i < len(candidates):
@@ -117,11 +84,11 @@ def detect_sign(image: np.ndarray | None):
             btn_updates.append(gr.update(visible=False))
 
     if len(candidates) > 1:
-        status = f"✅ Best guess **{primary}** ({primary_conf:.0%}). Not right? Pick a candidate below."
+        status = f"✅ Best guess **{pred.letter}** ({pred.confidence:.0%}). Not right? Pick a candidate below."
     else:
-        status = f"✅ Detected **{primary}**  ·  {primary_conf:.0%} confidence"
+        status = f"✅ Detected **{pred.letter}**  ·  {pred.confidence:.0%} confidence"
 
-    return annotated, primary, status, candidates, *btn_updates
+    return pred.annotated, pred.letter, status, candidates, *btn_updates
 
 
 def pick_candidate(candidates: list, index: int):
@@ -262,6 +229,33 @@ with gr.Blocks(title="ASL Translator") as demo:
     )
 
     with gr.Tabs():
+        # ---------------- Live Camera (streaming) ----------------
+        with gr.Tab("🔴 Live Camera"):
+            gr.Markdown(
+                "Point your hand at the webcam — the predicted letter updates **live**. "
+                "On a free CPU Space this runs at a few frames per second; hold each sign "
+                "briefly for a steady read."
+            )
+            with gr.Row():
+                live_in = gr.Image(
+                    sources=["webcam"],
+                    streaming=True,
+                    type="numpy",
+                    label="Webcam",
+                    height=360,
+                )
+                with gr.Column():
+                    live_out = gr.Image(label="Detection", height=300, interactive=False)
+                    live_label = gr.Label(label="Prediction", num_top_classes=N_CANDIDATES)
+            live_in.stream(
+                stream_predict,
+                inputs=live_in,
+                outputs=[live_out, live_label],
+                stream_every=0.3,        # ~3 fps — comfortable for free-tier CPU
+                concurrency_limit=1,
+                show_progress="hidden",
+            )
+
         # ---------------- Sign → Text ----------------
         with gr.Tab("📷 Sign → Text"):
             gr.Markdown(
