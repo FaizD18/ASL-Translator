@@ -18,6 +18,12 @@ SPACE_ID="${1:?Usage: ./deploy_hf_space.sh <hf-username>/<space-name>}"
 SRC="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
 
+command -v git-lfs >/dev/null || {
+  echo "✗ git-lfs is required to push model.pt. Install it first:"
+  echo "    brew install git-lfs && git lfs install"
+  exit 1
+}
+
 echo "▶ Cloning Space $SPACE_ID …"
 git clone "https://huggingface.co/spaces/$SPACE_ID" "$WORK/space"
 cd "$WORK/space"
