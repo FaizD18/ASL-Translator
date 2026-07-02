@@ -72,6 +72,8 @@ def main() -> None:
     p.add_argument("--extra", nargs="*", default=[], help="Extra dataset dirs to merge in (each with images/ + labels/).")
     p.add_argument("--name", default="asl_v2", help="Run name under runs/detect/.")
     p.add_argument("--device", default=None, help="Override device (mps / cpu / 0).")
+    p.add_argument("--lr0", type=float, default=0.01,
+                   help="Initial LR. Lower (e.g. 0.002) when fine-tuning an already-trained model.")
     p.add_argument("--promote", action="store_true", help="Copy the trained best.pt to model.pt after training.")
     args = p.parse_args()
 
@@ -90,6 +92,7 @@ def main() -> None:
         name=args.name,
         patience=50,
         cos_lr=True,
+        lr0=args.lr0,
         # --- Augmentation tuned for real-world robustness ---
         hsv_h=0.015, hsv_s=0.7, hsv_v=0.5,   # lighting / colour variation
         degrees=10.0, translate=0.12, scale=0.5,  # hand position / size / angle
