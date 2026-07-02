@@ -88,7 +88,8 @@ def main() -> None:
         batch=args.batch,
         device=device,
         name=args.name,
-        patience=25,
+        patience=50,
+        cos_lr=True,
         # --- Augmentation tuned for real-world robustness ---
         hsv_h=0.015, hsv_s=0.7, hsv_v=0.5,   # lighting / colour variation
         degrees=10.0, translate=0.12, scale=0.5,  # hand position / size / angle

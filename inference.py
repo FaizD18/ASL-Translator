@@ -15,6 +15,7 @@ in. There is no MediaPipe / hand-landmark step.
 from __future__ import annotations
 
 import os
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -80,12 +81,19 @@ class SignDetector:
     def names(self) -> dict:
         return getattr(self.model, "names", None) or dict(enumerate(CLASS_NAMES))
 
-    def predict(self, frame: np.ndarray | None) -> Prediction:
-        """Detect the ASL letter in a single RGB frame."""
+    def predict(self, frame: np.ndarray | None, tta: bool = False) -> Prediction:
+        """Detect the ASL letter in a single RGB frame.
+
+        ``tta=True`` enables test-time augmentation (multi-scale + flipped
+        inference, averaged). It is a few times slower, so use it for one-shot
+        snapshots, not the live stream.
+        """
         if frame is None:
             return Prediction("", 0.0, [], None)
 
-        result = self.model(frame, imgsz=self.imgsz, conf=self.candidate_conf, verbose=False)[0]
+        result = self.model(
+            frame, imgsz=self.imgsz, conf=self.candidate_conf, augment=tta, verbose=False
+        )[0]
         boxes = result.boxes
         if boxes is None or len(boxes) == 0:
             return Prediction("", 0.0, [], frame)
@@ -104,3 +112,26 @@ class SignDetector:
         primary, primary_conf = candidates[0]
         annotated = draw_box(frame, boxes.xyxy[top_idx].tolist(), f"{primary} {primary_conf:.0%}")
         return Prediction(primary, primary_conf, candidates, annotated)
+
+
+class TemporalSmoother:
+    """Confidence-weighted vote over the last N frames of a live stream.
+
+    Single-frame predictions flicker between similar letters (M/N, U/V…);
+    aggregating a short window of per-frame candidates gives a much steadier —
+    and in practice more accurate — live readout. One instance per stream
+    session; call ``update`` with each frame's candidates.
+    """
+
+    def __init__(self, window: int = 5):
+        self.history: deque[list[tuple[str, float]]] = deque(maxlen=window)
+
+    def update(self, candidates: list[tuple[str, float]]) -> list[tuple[str, float]]:
+        """Add one frame's (letter, conf) candidates; return the smoothed ranking."""
+        self.history.append(candidates)
+        scores: dict[str, float] = {}
+        for frame_candidates in self.history:
+            for letter, conf in frame_candidates:
+                scores[letter] = scores.get(letter, 0.0) + conf
+        n = len(self.history)
+        return sorted(((let, s / n) for let, s in scores.items()), key=lambda kv: -kv[1])
