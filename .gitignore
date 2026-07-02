@@ -14,3 +14,7 @@ node_modules/
 runs/
 data.merged.yaml
 my-data/
+
+# External datasets (multi-GB, re-downloadable from Kaggle)
+ASL-Data/
+downloads/
